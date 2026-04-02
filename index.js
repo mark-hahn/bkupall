@@ -18,7 +18,11 @@ async function doBackup() {
     ? 'bkupall: Backup completed successfully'
     : `bkupall: Backup canceled - ${result.reason}`;
 
-  await sendMail(subject, result.output);
+  const summary = result.success
+    ? '\n\n✅ Overall result: SUCCESS'
+    : `\n\n❌ Overall result: FAILED — ${result.reason}`;
+
+  await sendMail(subject, result.output + summary);
 }
 
 async function checkStopped() {

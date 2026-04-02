@@ -46,8 +46,6 @@ async function runBackup() {
     return { success: false, output: lines.join('\n'), reason: 'rsync is running' };
   }
 
-  log('\nBackup all started successfully.');
-
   log(`\n------ Backing up media ------\n${ts()}`);
   const media = await runCmd('nice', [
     '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
