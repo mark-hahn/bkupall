@@ -79,6 +79,9 @@ async function runBackup() {
     'xobtlu@oracle.usbx.me:/home/xobtlu/', '/mnt/media/backup/usb',
   ]);
   lines.push(usb.output);
+  if (usb.code === 23) {
+    log('Note: some usb files skipped due to permissions (expected on shared server)');
+  }
 
   log(`\n====== Backup finished ======\n${ts()}`);
 
