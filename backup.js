@@ -56,12 +56,14 @@ async function runBackup() {
   const sys = await runCmd('nice', [
     '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '--one-file-system',
     '--exclude=/root/archive/',
-    '--exclude=/dev/',
-    '--exclude=/proc/',
-    '--exclude=/sys/',
-    '--exclude=/tmp/',
-    '--exclude=/run/',
-    '--exclude=/mnt/',
+    '--exclude=/swap.img',
+    '--exclude=/var/lib/docker/',
+    '--exclude=/dev/*',
+    '--exclude=/proc/*',
+    '--exclude=/sys/*',
+    '--exclude=/tmp/*',
+    '--exclude=/run/*',
+    '--exclude=/mnt/*',
     '--exclude=/lost+found',
     '--exclude=/lib/modules',
     '--exclude=/var/lib/emby/transcoding-temp',
@@ -70,6 +72,20 @@ async function runBackup() {
     '/', '/mnt/media/backup/sys-bkup',
   ]);
   lines.push(sys.output);
+
+  log(`\n------ Backing up boot ------\n${ts()}`);
+  const boot = await runCmd('nice', [
+    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '--one-file-system',
+    '/boot/', '/mnt/media/backup/sys-bkup/boot',
+  ]);
+  lines.push(boot.output);
+
+  log(`\n------ Backing up boot/efi ------\n${ts()}`);
+  const efi = await runCmd('nice', [
+    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force',
+    '/boot/efi/', '/mnt/media/backup/sys-bkup/boot/efi',
+  ]);
+  lines.push(efi.output);
 
   log(`\n------ Backing up usb ------\n${ts()}`);
   const usb = await runCmd('nice', [
