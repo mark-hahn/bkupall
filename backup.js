@@ -50,13 +50,13 @@ async function runBackup() {
 
   log(`\n------ Backing up media ------\n${ts()}`);
   const media = await runCmd('nice', [
-    '-n', '20', 'rsync', '-a', '--stats', '--delete', '/mnt/media/', '/mnt/m-bkup',
+    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
   ]);
   lines.push(media.output);
 
   log(`\n------ Backing up sys ------\n${ts()}`);
   const sys = await runCmd('nice', [
-    '-n', '20', 'rsync', '-a', '--stats', '--one-file-system',
+    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '--one-file-system',
     '--exclude=/root/archive/',
     '--exclude=/dev/',
     '--exclude=/proc/',
@@ -75,7 +75,7 @@ async function runBackup() {
 
   log(`\n------ Backing up usb ------\n${ts()}`);
   const usb = await runCmd('nice', [
-    'rsync', '-a', '--exclude', 'files',
+    'rsync', '-a', '--delete', '--force', '--exclude', 'files',
     'xobtlu@oracle.usbx.me:/home/xobtlu/', '/mnt/media/backup/usb',
   ]);
   lines.push(usb.output);
