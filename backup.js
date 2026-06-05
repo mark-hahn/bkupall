@@ -112,7 +112,7 @@ async function runBackup() {
   log(`\n------ Backing up usb ------\n${ts()}`);
   const usb = await runCmd('nice', [
     'rsync', '-a', '--delete', '--force', '--exclude', 'files',
-    'xobtlu@oracle.baron.me:/home/xobtlu/', '/mnt/media/backup/usb',
+    'xobtlu@baron.usbx.me:/home/xobtlu/', '/mnt/media/backup/usb',
   ]);
   lines.push(usb.output);
   if (usb.code === 23) {
