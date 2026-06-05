@@ -46,11 +46,18 @@ async function runBackup() {
     return { success: false, output: lines.join('\n'), reason: 'rsync is running' };
   }
 
+  const errors = [];
+
   log(`\n------ Backing up media ------\n${ts()}`);
   const media = await runCmd('nice', [
     '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
   ]);
   lines.push(media.output);
+  if (media.code !== 0) {
+    const err = `Media backup failed (exit code ${media.code})`;
+    log(`ERROR: ${err}`);
+    errors.push(err);
+  }
 
   log(`\n------ Backing up sys ------\n${ts()}`);
   const sys = await runCmd('nice', [
@@ -72,6 +79,11 @@ async function runBackup() {
     '/', '/mnt/media/backup/sys-bkup',
   ]);
   lines.push(sys.output);
+  if (sys.code !== 0) {
+    const err = `System backup failed (exit code ${sys.code})`;
+    log(`ERROR: ${err}`);
+    errors.push(err);
+  }
 
   log(`\n------ Backing up boot ------\n${ts()}`);
   const boot = await runCmd('nice', [
@@ -79,6 +91,11 @@ async function runBackup() {
     '/boot/', '/mnt/media/backup/sys-bkup/boot',
   ]);
   lines.push(boot.output);
+  if (boot.code !== 0) {
+    const err = `Boot backup failed (exit code ${boot.code})`;
+    log(`ERROR: ${err}`);
+    errors.push(err);
+  }
 
   log(`\n------ Backing up boot/efi ------\n${ts()}`);
   const efi = await runCmd('nice', [
@@ -86,6 +103,11 @@ async function runBackup() {
     '/boot/efi/', '/mnt/media/backup/sys-bkup/boot/efi',
   ]);
   lines.push(efi.output);
+  if (efi.code !== 0) {
+    const err = `EFI backup failed (exit code ${efi.code})`;
+    log(`ERROR: ${err}`);
+    errors.push(err);
+  }
 
   log(`\n------ Backing up usb ------\n${ts()}`);
   const usb = await runCmd('nice', [
@@ -95,9 +117,18 @@ async function runBackup() {
   lines.push(usb.output);
   if (usb.code === 23) {
     log('Note: some usb files skipped due to permissions (expected on shared server)');
+  } else if (usb.code !== 0) {
+    const err = `USB backup failed (exit code ${usb.code})`;
+    log(`ERROR: ${err}`);
+    errors.push(err);
   }
 
   log(`\n====== Backup finished ======\n${ts()}`);
+
+  if (errors.length > 0) {
+    log(`\n⚠️  ERRORS: ${errors.length} backup(s) failed`);
+    return { success: false, output: lines.join('\n'), reason: errors.join('; ') };
+  }
 
   return { success: true, output: lines.join('\n') };
 }
