@@ -16,7 +16,7 @@ async function doBackup() {
 
   const subject = result.success
     ? 'bkupall: Backup completed successfully'
-    : `bkupall: Backup canceled - ${result.reason}`;
+    : `bkupall: Backup ERROR - ${result.reason}`;
 
   const summary = result.success
     ? '\n\n✅ Overall result: SUCCESS'
