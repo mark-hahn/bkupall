@@ -79,7 +79,9 @@ async function runBackup() {
     '/', '/mnt/media/backup/sys-bkup',
   ]);
   lines.push(sys.output);
-  if (sys.code !== 0) {
+  if (sys.code === 24) {
+    log('Note: some sys files vanished before transfer (e.g. temp files)');
+  } else if (sys.code !== 0) {
     const err = `System backup failed (exit code ${sys.code})`;
     log(`ERROR: ${err}`);
     errors.push(err);
