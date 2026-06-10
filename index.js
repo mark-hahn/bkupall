@@ -1,9 +1,9 @@
 const cron     = require('node-cron');
-const { runBackup }            = require('./backup');
+const { runBackup }            = require('./restic-bkup');
 const { sendMail }             = require('./mailer');
 const { isStopped, shouldSendStopEmail, updateLastStopEmail, readState } = require('./state');
 
-console.log(`bkupall daemon started at ${new Date().toISOString()}`);
+console.log(`bkupall daemon started at ${new Date().toLocaleString('sv-SE', { timeZone: 'America/Los_Angeles' })}`);
 
 async function doBackup() {
   if (isStopped()) {

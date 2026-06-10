@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+human_bytes() {
+	local bytes="$1"
+	if command -v numfmt >/dev/null 2>&1; then
+		numfmt --to=iec-i --suffix=B "$bytes"
+	else
+		echo "$bytes bytes"
+	fi
+}
+
+# Fast conservative total for transition planning.
+# /boot is counted once here and not separately from a root scan.
+# This intentionally does not subtract excluded subtrees under /root, /usr, or /var.
+paths=(
+	/etc
+	/home
+	/opt
+	/root
+	/srv
+	/usr
+	/var
+	/boot
+)
+
+echo "==== total source size for rustic transition ===="
+date
+echo
+
+existing_paths=()
+for path in "${paths[@]}"; do
+	[[ -e "$path" ]] && existing_paths+=("$path")
+done
+
+if [[ "${#existing_paths[@]}" -eq 0 ]]; then
+	echo "No source paths found."
+	exit 1
+fi
+
+total_bytes="$(du -csx -B1 "${existing_paths[@]}" 2>/dev/null | awk '/total$/ { print $1 }')"
+
+echo "Sources counted once:"
+printf '  %s\n' "${existing_paths[@]}"
+echo
+
+echo "Exact total bytes: $total_bytes"
+echo "Human total: $(human_bytes "$total_bytes")"
+echo
+echo "This is a conservative upper bound for transition planning."
+echo "It may be larger than the current rsync sys source set because it does not subtract excluded subtrees."
