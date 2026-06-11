@@ -298,7 +298,8 @@ async function runBackup() {
 
   log(`\n------ Backing up usb ------\n${ts()}`);
   const usb = await runCmd('nice', [
-    'rsync', '-a', '--delete', '--force', '--exclude', 'files',
+     'rsync', '-a', '--stats', '--delete', '--force', '--exclude', 'files',
+     '--exclude', '.proot/ubuntu-24.04/',
     'xobtlu@xobtlu.baron.usbx.me:/home/xobtlu/', '/mnt/media/backup/usb',
   ]);
   lines.push(usb.output);
