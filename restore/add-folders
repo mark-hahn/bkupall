@@ -1,11 +1,33 @@
 #!/bin/bash
 
+#
+# Selects a restore point from the backupall `restic` repository, bind-mounts
+# the matching `sys`, `boot`, and `boot-efi` snapshots, and adds them to VS Code.
+#
+# How to run: `./add-folders [snapshot_specifier]`
+#
+# Details: The `snapshot_specifier` can be an index such as `0` or `1`, the
+# word `latest`, or a date/time string such as `"2026/06/10 18:43"`. The script
+# mounts the repository if needed, records the selected snapshot time in
+# `bkupall-bkup-time`, and opens `/mnt/bkupall-root`, `/mnt/bkupall-boot`, and
+# `/mnt/bkupall-boot-efi` in VS Code when those snapshots are available.
+#
+# Parameter examples of specifying what to mount:
+#   (no argument)       - latest.
+#   0 or latest         - latest.
+#   1                   - second latest.
+#   "2026/06/08 14:30"  - latest at or before this date and time.
+#   "2026/06/08"        - latest at or before this date (time defaults to 00:00:00).
+#   "14:30"             - latest at or before this time on the current day.
+#   "26/06/"            - latest at or before the beginning of June 2026.
+#   "/06/08"            - latest at or before June 8th of the current year.
+
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
-REPO="/mnt/media/backup/sys-bkup/sys-bkup-restic"
+REPO="/mnt/media/backup/sys-bkup-restic"
 PASSWORD_FILE="$APP_DIR/restic-cred.txt"
 MOUNTPOINT="/mnt/bkupall-bkup"
 STATE_FILE="$SCRIPT_DIR/bkupall-bkup-time"

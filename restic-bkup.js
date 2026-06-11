@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const RESTIC_REPO = '/mnt/media/backup/sys-bkup/sys-bkup-restic';
+const RESTIC_REPO = '/mnt/media/backup/sys-bkup-restic';
 const RESTIC_PASSWORD_FILE = '/root/dev/apps/bkupall/restic-cred.txt';
 
 function runCmd(cmd, args, options = {}) {

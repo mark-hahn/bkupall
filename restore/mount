@@ -1,11 +1,22 @@
 #!/bin/bash
 
+#
+# Mounts the backupall `restic` repository and bind-mounts the latest restore
+# views for browsing.
+#
+# How to run: `./mount`
+#
+# Details: The script mounts the repository at
+# `/mnt/media/backup/sys-bkup-restic` onto `/mnt/bkupall-bkup`, then
+# bind-mounts the latest `sys`, `boot`, and `boot-efi` snapshots onto
+# `/mnt/bkupall-root`, `/mnt/bkupall-boot`, and `/mnt/bkupall-boot-efi`.
+
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
-REPO="/mnt/media/backup/sys-bkup/sys-bkup-restic"
+REPO="/mnt/media/backup/sys-bkup-restic"
 MOUNTPOINT="/mnt/bkupall-bkup"
 PASSWORD_FILE="$APP_DIR/restic-cred.txt"
 SYS_BROWSE_MOUNT="/mnt/bkupall-root"
