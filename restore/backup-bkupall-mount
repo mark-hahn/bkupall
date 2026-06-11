@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
+REPO="/mnt/media/backup/sys-bkup/sys-bkup-restic"
+MOUNTPOINT="/mnt/bkupall-bkup"
+PASSWORD_FILE="$APP_DIR/restic-cred.txt"
+
+cleanup_mount() {
+  local path="$1"
+
+  if findmnt -rn "$path" >/dev/null 2>&1; then
+    echo "Unmounting $path ..."
+    fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+  fi
+
+  if [[ -e "$path" || -L "$path" ]] && ! stat "$path" >/dev/null 2>&1; then
+    rm -rf "$path"
+  fi
+}
+
+cleanup_mount /mnt/bkupall-root
+cleanup_mount /mnt/bkupall-boot
+cleanup_mount /mnt/bkupall-boot-efi
+cleanup_mount "$MOUNTPOINT"
+
+mkdir -p "$MOUNTPOINT"
+
+echo "Mounting $REPO at $MOUNTPOINT ..."
+restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT"

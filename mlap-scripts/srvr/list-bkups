@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+# Lists snapshots in a restic repository.
+#
+
+REPO="/root/dev/apps/mlap-bkup/srvr/mlap-data"
+PASSWORD_FILE="/root/dev/apps/mlap-bkup/.restic"
+
+restic -r "$REPO" --password-file "$PASSWORD_FILE" snapshots | awk 'NR > 2 && NF > 2 {print $2, $3}'
