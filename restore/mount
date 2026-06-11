@@ -1,0 +1,87 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
+REPO="/mnt/media/backup/sys-bkup/sys-bkup-restic"
+MOUNTPOINT="/mnt/bkupall-bkup"
+PASSWORD_FILE="$APP_DIR/restic-cred.txt"
+SYS_BROWSE_MOUNT="/mnt/bkupall-root"
+BOOT_BROWSE_MOUNT="/mnt/bkupall-boot"
+EFI_BROWSE_MOUNT="/mnt/bkupall-boot-efi"
+
+cleanup_mount() {
+  local path="$1"
+
+  if findmnt -rn "$path" >/dev/null 2>&1; then
+    echo "Unmounting $path ..."
+    fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+  fi
+
+  if [[ -e "$path" || -L "$path" ]] && ! stat "$path" >/dev/null 2>&1; then
+    rm -rf "$path"
+  fi
+}
+
+prepare_browse_mount() {
+  local tag="$1"
+  local destination="$2"
+  local latest_path="$MOUNTPOINT/tags/$tag/latest"
+  local source_path
+
+  if [[ ! -e "$latest_path" ]]; then
+    echo "WARNING: No latest snapshot found for tag '$tag'"
+    return 1
+  fi
+
+  source_path=$(readlink -f "$latest_path")
+  if [[ -z "$source_path" || ! -d "$source_path" ]]; then
+    echo "WARNING: Could not resolve a directory for tag '$tag'"
+    return 1
+  fi
+
+  cleanup_mount "$destination"
+  mkdir -p "$destination"
+  /usr/bin/mount --bind "$source_path" "$destination"
+}
+
+cleanup_all_mounts() {
+  cleanup_mount "$SYS_BROWSE_MOUNT"
+  cleanup_mount "$BOOT_BROWSE_MOUNT"
+  cleanup_mount "$EFI_BROWSE_MOUNT"
+  cleanup_mount "$MOUNTPOINT"
+}
+
+cleanup_all_mounts
+
+mkdir -p "$MOUNTPOINT"
+
+echo "Mounting $REPO at $MOUNTPOINT ..."
+nohup restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT" \
+  > /tmp/bkupall-mount.log 2>&1 &
+
+for i in $(seq 1 10); do
+  if mountpoint -q "$MOUNTPOINT"; then
+    break
+  fi
+  sleep 1
+done
+
+if ! mountpoint -q "$MOUNTPOINT"; then
+  echo "ERROR: FUSE mount failed at $MOUNTPOINT" >&2
+  exit 1
+fi
+
+prepare_browse_mount sys "$SYS_BROWSE_MOUNT" || true
+prepare_browse_mount boot "$BOOT_BROWSE_MOUNT" || true
+prepare_browse_mount boot-efi "$EFI_BROWSE_MOUNT" || true
+
+echo
+echo "Browse these mounted folders:"
+echo "repo: $MOUNTPOINT"
+echo "sys: $SYS_BROWSE_MOUNT"
+echo "boot: $BOOT_BROWSE_MOUNT"
+echo "boot-efi: $EFI_BROWSE_MOUNT"
+echo

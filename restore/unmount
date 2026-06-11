@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SYS_BROWSE_MOUNT="/mnt/bkupall-root"
+BOOT_BROWSE_MOUNT="/mnt/bkupall-boot"
+EFI_BROWSE_MOUNT="/mnt/bkupall-boot-efi"
+MOUNTPOINT="/mnt/bkupall-bkup"
+
+cleanup_mount() {
+  local path="$1"
+
+  if findmnt -rn "$path" >/dev/null 2>&1; then
+    echo "Unmounting $path ..."
+    fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+  else
+    echo "$path is not mounted."
+  fi
+}
+
+cleanup_all_mounts() {
+  cleanup_mount "$SYS_BROWSE_MOUNT"
+  cleanup_mount "$BOOT_BROWSE_MOUNT"
+  cleanup_mount "$EFI_BROWSE_MOUNT"
+  cleanup_mount "$MOUNTPOINT"
+}
+
+cleanup_all_mounts
+echo "All restore mounts have been unmounted."
