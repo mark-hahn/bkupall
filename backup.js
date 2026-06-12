@@ -50,7 +50,7 @@ async function runBackup() {
 
   log(`\n------ Backing up media ------\n${ts()}`);
   const media = await runCmd('nice', [
-    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
+    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '--inplace', '/mnt/media/', '/mnt/m-bkup',
   ]);
   lines.push(media.output);
   if (media.code !== 0) {
