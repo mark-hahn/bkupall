@@ -13,7 +13,7 @@ function runCmd(cmd, args) {
 }
 
 function ts() {
-  return new Date().toLocaleString('sv-SE', { timeZone: 'America/Los_Angeles' });
+  return new Date().toLocaleString('sv-SE');
 }
 
 async function runBackup() {
