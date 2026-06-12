@@ -37,8 +37,8 @@ async function checkStopped() {
   }
 }
 
-// Run backup at 4am, noon, and 8pm
-cron.schedule('0 4,12,20 * * *', doBackup);
+// Run backup at 7am, 1pm, and 7pm
+cron.schedule('0 7,13,19 * * *', doBackup);
 
 // Check stopped status every 2 hours to send reminder emails
 cron.schedule('0 */2 * * *', checkStopped);
