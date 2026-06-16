@@ -10,7 +10,7 @@
 # Without args: Unmounts the default latest snapshot mounts and repository.
 #
 # With snapshot IDs: Unmounts and removes the directories for each specified
-# snapshot ID (e.g., /mnt/bkup/sys/*-4c45bfbd).
+# snapshot ID (e.g., /mnt/bkup/sys/2024-01-01.12.00.00).
 
 set -euo pipefail
 

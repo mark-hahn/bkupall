@@ -5,14 +5,14 @@
 # browsing.
 #
 # How to run:
-#   ./mount              # Mounts latest sys snapshot to /mnt/bkup/sys/<date>-<id>/
-#   ./mount <id> [...]   # Mounts specific snapshots to /mnt/bkup/sys/<date>-<id>/
+#   ./mount              # Mounts latest sys snapshot to /mnt/bkup/sys/<date>/
+#   ./mount <id> [...]   # Mounts specific snapshots to /mnt/bkup/sys/<date>/
 #
-# Without args: Mounts the repository and the latest sys snapshot to
-# `/mnt/bkup/sys/<date>-<id>/`.
+# By default, this script mounts the latest system snapshot to a directory like
+# `/mnt/bkup/sys/<date>/`.
 #
-# With snapshot IDs: For each snapshot ID (e.g., 4c45bfbd), mounts the sys
-# restore view directly to `/mnt/bkup/sys/<date>-<id>/`.
+# If you provide one or more snapshot IDs as arguments, it will mount each
+# restore view directly to `/mnt/bkup/sys/<date>/`.
 # The <date> format is yyyy-mm-dd.hh.mm.ss.
 
 set -euo pipefail
@@ -44,7 +44,7 @@ get_snapshot_datetime() {
   echo "$datetime"
 }
 
-# Mount a specific snapshot to /mnt/bkup/sys/<date>-<id>/
+# Mount a specific snapshot to /mnt/bkup/sys/<date>/
 mount_specific_snapshot() {
   local snapshot_id="$1"
   local datetime
@@ -52,7 +52,7 @@ mount_specific_snapshot() {
   local snapshot_path
   
   datetime=$(get_snapshot_datetime "$snapshot_id") || return 1
-  mount_path="/mnt/bkup/sys/$datetime-$snapshot_id"
+  mount_path="/mnt/bkup/sys/$datetime"
   snapshot_path="$MOUNTPOINT/ids/$snapshot_id"
   
   if [[ ! -d "$snapshot_path" ]]; then
