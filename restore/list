@@ -3,7 +3,9 @@
 #
 # Lists available `sys` snapshots in the backupall `restic` repository.
 #
-# How to run: `./list`
+# How to run:
+#   ./list        # Lists the 10 most recent snapshots
+#   ./list 20     # Lists the 20 most recent snapshots
 #
 # Details: The script reads snapshots from
 # `/mnt/media/backup/sys-bkup-restic`, filters to the `sys` tag, and
@@ -16,22 +18,25 @@ APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
 REPO="/mnt/media/backup/sys-bkup-restic"
 PASSWORD_FILE="$APP_DIR/restic-cred.txt"
+LIMIT="${1:-10}"
 
 restic -r "$REPO" --password-file "$PASSWORD_FILE" snapshots --json --tag sys \
-  | python3 -c '
+  | python3 -c "
 import json, sys, re
 from datetime import datetime
 
+limit = int('$LIMIT')
+
 rows = []
 for snap in json.load(sys.stdin):
-    raw = snap.get("time", "")
+    raw = snap.get('time', '')
     if not raw:
         continue
-    clean = re.sub(r"\.\d+", "", raw)
+    clean = re.sub(r'\.\d+', '', raw)
     when = datetime.fromisoformat(clean)
-    rows.append((when.timestamp(), when.strftime("%Y/%m/%d %H:%M:%S"), snap.get("short_id", "")))
+    rows.append((when.timestamp(), when.strftime('%Y/%m/%d %H:%M:%S'), snap.get('short_id', '')))
 
 rows.sort(key=lambda item: item[0], reverse=True)
-for _epoch, stamp, short_id in rows:
-    print(f"{stamp} {short_id}".rstrip())
-'
+for _epoch, stamp, short_id in rows[:limit]:
+    print(f'{stamp} {short_id}'.rstrip())
+"

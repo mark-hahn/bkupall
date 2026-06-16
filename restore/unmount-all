@@ -1,0 +1,16 @@
+# Unmount all nested snapshot directories
+for dir in /mnt/bkup/sys/*/*/; do
+  if findmnt -rn "$dir" >/dev/null 2>&1; then
+    sudo umount "$dir"
+  fi
+done
+
+# Unmount all date directories
+for dir in /mnt/bkup/sys/*/; do
+  if findmnt -rn "$dir" >/dev/null 2>&1; then
+    sudo umount "$dir"
+  fi
+done
+
+# Now remove everything
+rm -rf /mnt/bkup/sys/*

@@ -1,15 +1,19 @@
 #!/bin/bash
 
 #
-# Mounts the backupall `restic` repository and bind-mounts the latest restore
-# views for browsing.
+# Mounts the backupall `restic` repository and bind-mounts restore views for
+# browsing.
 #
-# How to run: `./mount`
+# How to run:
+#   ./mount              # Mounts latest sys snapshot to /mnt/bkup/sys/<date>-<id>/
+#   ./mount <id> [...]   # Mounts specific snapshots to /mnt/bkup/sys/<date>-<id>/
 #
-# Details: The script mounts the repository at
-# `/mnt/media/backup/sys-bkup-restic` onto `/mnt/bkupall-bkup`, then
-# bind-mounts the latest `sys`, `boot`, and `boot-efi` snapshots onto
-# `/mnt/bkupall-root`, `/mnt/bkupall-boot`, and `/mnt/bkupall-boot-efi`.
+# Without args: Mounts the repository and the latest sys snapshot to
+# `/mnt/bkup/sys/<date>-<id>/`.
+#
+# With snapshot IDs: For each snapshot ID (e.g., 4c45bfbd), mounts the sys
+# restore view directly to `/mnt/bkup/sys/<date>-<id>/`.
+# The <date> format is yyyy-mm-dd.hh.mm.ss.
 
 set -euo pipefail
 
@@ -22,6 +26,46 @@ PASSWORD_FILE="$APP_DIR/restic-cred.txt"
 SYS_BROWSE_MOUNT="/mnt/bkupall-root"
 BOOT_BROWSE_MOUNT="/mnt/bkupall-boot"
 EFI_BROWSE_MOUNT="/mnt/bkupall-boot-efi"
+
+# Get snapshot date/time for a given snapshot ID
+get_snapshot_datetime() {
+  local snapshot_id="$1"
+  local datetime
+  
+  datetime=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r ".[] | select(.short_id == \"$snapshot_id\") | .time" | \
+    sed 's/T/./' | sed 's/\.[0-9]*[+-].*$//' | tr ':' '.')
+  
+  if [[ -z "$datetime" ]]; then
+    echo "ERROR: Could not find snapshot with ID $snapshot_id" >&2
+    return 1
+  fi
+  
+  echo "$datetime"
+}
+
+# Mount a specific snapshot to /mnt/bkup/sys/<date>-<id>/
+mount_specific_snapshot() {
+  local snapshot_id="$1"
+  local datetime
+  local mount_path
+  local snapshot_path
+  
+  datetime=$(get_snapshot_datetime "$snapshot_id") || return 1
+  mount_path="/mnt/bkup/sys/$datetime-$snapshot_id"
+  snapshot_path="$MOUNTPOINT/ids/$snapshot_id"
+  
+  if [[ ! -d "$snapshot_path" ]]; then
+    echo "ERROR: Snapshot path $snapshot_path not found" >&2
+    return 1
+  fi
+  
+  # Mount sys contents directly to base path
+  cleanup_mount "$mount_path"
+  mkdir -p "$mount_path"
+  /usr/bin/mount --bind "$snapshot_path" "$mount_path"
+  echo "  $mount_path"
+}
 
 cleanup_mount() {
   local path="$1"
@@ -65,34 +109,61 @@ cleanup_all_mounts() {
   cleanup_mount "$MOUNTPOINT"
 }
 
-cleanup_all_mounts
-
-mkdir -p "$MOUNTPOINT"
-
-echo "Mounting $REPO at $MOUNTPOINT ..."
-nohup restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT" \
-  > /tmp/bkupall-mount.log 2>&1 &
-
-for i in $(seq 1 10); do
+# Ensure repository is mounted
+ensure_repo_mounted() {
   if mountpoint -q "$MOUNTPOINT"; then
-    break
+    echo "Repository already mounted at $MOUNTPOINT"
+    return 0
   fi
-  sleep 1
-done
+  
+  mkdir -p "$MOUNTPOINT"
+  echo "Mounting $REPO at $MOUNTPOINT ..."
+  nohup restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT" \
+    > /tmp/bkupall-mount.log 2>&1 &
 
-if ! mountpoint -q "$MOUNTPOINT"; then
-  echo "ERROR: FUSE mount failed at $MOUNTPOINT" >&2
-  exit 1
+  for i in $(seq 1 10); do
+    if mountpoint -q "$MOUNTPOINT"; then
+      break
+    fi
+    sleep 1
+  done
+
+  if ! mountpoint -q "$MOUNTPOINT"; then
+    echo "ERROR: FUSE mount failed at $MOUNTPOINT" >&2
+    exit 1
+  fi
+  
+  echo "Repository mounted successfully"
+}
+
+# Main logic
+if [[ $# -eq 0 ]]; then
+  # No arguments: mount latest sys snapshot
+  ensure_repo_mounted
+  
+  # Get the latest sys snapshot ID
+  latest_id=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r '[.[] | select(.tags[]? == "sys")] | sort_by(.time) | last | .short_id')
+  
+  if [[ -z "$latest_id" || "$latest_id" == "null" ]]; then
+    echo "ERROR: Could not find latest sys snapshot" >&2
+    exit 1
+  fi
+  
+  echo
+  echo "Mounting latest snapshot:"
+  echo "Snapshot $latest_id:"
+  mount_specific_snapshot "$latest_id" || echo "  Failed to mount snapshot $latest_id"
+  echo
+else
+  # Arguments provided: mount specific snapshots
+  ensure_repo_mounted
+  
+  echo
+  echo "Mounting specific snapshots:"
+  for snapshot_id in "$@"; do
+    echo "Snapshot $snapshot_id:"
+    mount_specific_snapshot "$snapshot_id" || echo "  Failed to mount snapshot $snapshot_id"
+  done
+  echo
 fi
-
-prepare_browse_mount sys "$SYS_BROWSE_MOUNT" || true
-prepare_browse_mount boot "$BOOT_BROWSE_MOUNT" || true
-prepare_browse_mount boot-efi "$EFI_BROWSE_MOUNT" || true
-
-echo
-echo "Browse these mounted folders:"
-echo "repo: $MOUNTPOINT"
-echo "sys: $SYS_BROWSE_MOUNT"
-echo "boot: $BOOT_BROWSE_MOUNT"
-echo "boot-efi: $EFI_BROWSE_MOUNT"
-echo
