@@ -7,13 +7,59 @@ console.log(`bkupall daemon started at ${new Date().toLocaleString('sv-SE', { ti
 
 async function doBackup() {
   if (isStopped()) {
-    console.log('Backup skipped: bkupall is stopped');
+    const timestamp = new Date().toLocaleString('sv-SE', { timeZone: 'America/Los_Angeles' });
+    const state = readState();
+    const stoppedAt = state.stoppedAt ? new Date(state.stoppedAt).toLocaleString('sv-SE', { timeZone: 'America/Los_Angeles' }) : 'unknown';
+    
+    const reason = 'backups are stopped';
+    const logMessage = `Backup blocked: ${reason}\nStopped at: ${stoppedAt}\nAttempted at: ${timestamp}`;
+    console.log(logMessage);
+    
+    await sendMail(
+      `bkupall: Backup BLOCKED - ${reason}`,
+      `A scheduled backup was blocked.\n\nReason: ${reason}\nStopped at: ${stoppedAt}\nAttempted at: ${timestamp}\n\nRun "bkupall start" to resume backups.`
+    );
     return;
   }
 
   console.log('Starting scheduled backup...');
-  const result = await runBackup();
+  
+  let delayEmailSent = false;
+  const onDelayCallback = async (util) => {
+    if (!delayEmailSent) {
+      await sendMail(
+        `bkupall: Backup DELAYED - ${util} running`,
+        `Backup is delayed because ${util} is running. Waiting up to 120 minutes...`
+      );
+      delayEmailSent = true;
+    }
+  };
+  
+  const result = await runBackup(onDelayCallback);
 
+  // Handle different backup statuses
+  if (result.status === 'blocked') {
+    await sendMail(
+      `bkupall: Backup BLOCKED - ${result.drive} drive not mounted`,
+      result.output
+    );
+    return;
+  }
+
+  if (result.status === 'timeout') {
+    await sendMail(
+      'bkupall: Backup BLOCKED - timeout expired',
+      result.output
+    );
+    return;
+  }
+
+  // If we had a delay but backup started successfully
+  if (delayEmailSent && (result.status === 'success' || result.status === 'error')) {
+    await sendMail('bkupall: Backup started', 'Backup started after waiting for processes to complete.');
+  }
+
+  // Normal success/error handling
   const subject = result.success
     ? 'bkupall: Backup completed successfully'
     : `bkupall: Backup ERROR - ${result.reason}`;

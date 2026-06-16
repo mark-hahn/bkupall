@@ -37,6 +37,16 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getNextBackupTime() {
+  const now = new Date();
+  const hours = now.getHours();
+  
+  if (hours < 7) return '7am';
+  if (hours < 13) return '1pm';
+  if (hours < 19) return '7pm';
+  return '7am (tomorrow)';
+}
+
 function isProcessRunning(name) {
   try {
     const pids = execSync(`pgrep -x ${name}`, { encoding: 'utf8' }).trim();
@@ -133,8 +143,10 @@ function getResticWritersOnBackupDisk() {
   return writers;
 }
 
-async function waitForBackupDiskIdle(log) {
+async function waitForBackupDiskIdle(log, timeoutMinutes = 120, onDelayCallback = null) {
   const pollMs = 30 * 1000;
+  const timeoutMs = timeoutMinutes * 60 * 1000;
+  const startTime = Date.now();
   let waited = false;
 
   while (true) {
@@ -146,22 +158,44 @@ async function waitForBackupDiskIdle(log) {
       if (waited) {
         log(`\n---- wait complete: backup disk is idle\n${ts()}`);
       }
-      return;
+      return { status: 'idle' };
+    }
+
+    // Check if timeout expired
+    if (Date.now() - startTime >= timeoutMs) {
+      const running = [];
+      if (rsyncRunning) running.push('rsync');
+      if (resticRunning) {
+        const repos = [...new Set(resticWriters.map((writer) => writer.repo))].join(', ');
+        running.push(`restic writing to ${repos}`);
+      }
+      log(`\n---- timeout expired: ${running.join(' and ')} still running after ${timeoutMinutes} minutes`);
+      return { status: 'timeout', util: running.join(' and ') };
     }
 
     const running = [];
-    if (rsyncRunning) running.push('rsync');
+    const utils = [];
+    if (rsyncRunning) {
+      running.push('rsync');
+      utils.push('rsync');
+    }
     if (resticRunning) {
       const repos = [...new Set(resticWriters.map((writer) => writer.repo))].join(', ');
       running.push(`restic writing to ${repos}`);
+      utils.push('restic');
     }
 
     if (!waited) {
-      log(`\n---- waiting for backup disk to become idle\n${ts()}`);
+      log(`====== Backup DELAYED - ${utils.join(' and ')} running ======\n${ts()}`);
       waited = true;
+      // Notify about delay via callback if provided
+      if (onDelayCallback) {
+        await onDelayCallback(utils.join(' and '));
+      }
+    } else {
+      log(`\n---- waiting: ${running.join(' and ')} still running; retrying in 30s`);
     }
 
-    log(`\n---- waiting: ${running.join(' and ')} still running; retrying in 30s`);
     await delay(pollMs);
   }
 }
@@ -221,25 +255,34 @@ async function runResticBackup(name, sources, extraArgs, env, log, lines) {
   return result;
 }
 
-async function runBackup() {
+async function runBackup(onDelayCallback = null) {
   const lines = [];
   const log = (msg) => { console.log(msg); lines.push(msg); };
 
-  log(`\n\n======== Backup starting =======\n${ts()}`);
-
+  // Check for blocked conditions first
   if (fs.existsSync('/mnt/media/nomount')) {
-    log('\n---- canceled: media drive is not mounted');
-    log(`\n====== Backup finished ======\n${ts()}`);
-    return { success: false, output: lines.join('\n'), reason: 'media drive is not mounted' };
+    const nextBackup = getNextBackupTime();
+    log(`====== Backup BLOCKED - media drive not mounted ======\n${ts()}\nNext backup is at ${nextBackup}`);
+    return { status: 'blocked', output: lines.join('\n'), reason: 'media drive not mounted', drive: 'media' };
   }
 
   if (fs.existsSync('/mnt/m-bkup/nomount')) {
-    log('\n---- canceled: m-bkup drive is not mounted');
-    log(`\n====== Backup finished ======\n${ts()}`);
-    return { success: false, output: lines.join('\n'), reason: 'm-bkup drive is not mounted' };
+    const nextBackup = getNextBackupTime();
+    log(`====== Backup BLOCKED - m-bkup drive not mounted ======\n${ts()}\nNext backup is at ${nextBackup}`);
+    return { status: 'blocked', output: lines.join('\n'), reason: 'm-bkup drive not mounted', drive: 'm-bkup' };
   }
 
-  await waitForBackupDiskIdle(log);
+  // Check if backup disk is idle or needs to wait
+  const idleResult = await waitForBackupDiskIdle(log, 120, onDelayCallback);
+  
+  if (idleResult.status === 'timeout') {
+    const nextBackup = getNextBackupTime();
+    log(`====== Backup BLOCKED - timeout expired ======\n${ts()}\nNext backup is at ${nextBackup}`);
+    return { status: 'timeout', output: lines.join('\n'), util: idleResult.util };
+  }
+
+  // Backup is starting
+  log(`\n\n======== Backup starting =======\n${ts()}`);
 
   const errors = [];
 
@@ -315,10 +358,10 @@ async function runBackup() {
 
   if (errors.length > 0) {
     log(`\n⚠️  ERRORS: ${errors.length} backup(s) failed`);
-    return { success: false, output: lines.join('\n'), reason: errors.join('; ') };
+    return { status: 'error', success: false, output: lines.join('\n'), reason: errors.join('; ') };
   }
 
-  return { success: true, output: lines.join('\n') };
+  return { status: 'success', success: true, output: lines.join('\n') };
 }
 
 module.exports = { runBackup };

@@ -6,10 +6,14 @@
 #
 # How to run:
 #   ./mount              # Mounts latest sys snapshot to /mnt/bkup/sys/<date>/
+#   ./mount <n>          # Mounts N most recent snapshots (0-999)
 #   ./mount <id> [...]   # Mounts specific snapshots to /mnt/bkup/sys/<date>/
 #
 # By default, this script mounts the latest system snapshot to a directory like
 # `/mnt/bkup/sys/<date>/`.
+#
+# If you provide a single integer (0-999), it will mount that number of most
+# recent sys snapshots.
 #
 # If you provide one or more snapshot IDs as arguments, it will mount each
 # restore view directly to `/mnt/bkup/sys/<date>/`.
@@ -154,6 +158,29 @@ if [[ $# -eq 0 ]]; then
   echo "Mounting latest snapshot:"
   echo "Snapshot $latest_id:"
   mount_specific_snapshot "$latest_id" || echo "  Failed to mount snapshot $latest_id"
+  echo
+elif [[ $# -eq 1 ]] && [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -ge 0 ]] && [[ "$1" -le 999 ]]; then
+  # Single integer argument (0-999): mount N most recent snapshots
+  count="$1"
+  ensure_repo_mounted
+  
+  # Get the N most recent sys snapshot IDs
+  snapshot_ids=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r "[.[] | select(.tags[]? == \"sys\")] | sort_by(.time) | reverse | .[0:$count] | .[].short_id")
+  
+  if [[ -z "$snapshot_ids" ]]; then
+    echo "ERROR: Could not find any sys snapshots" >&2
+    exit 1
+  fi
+  
+  echo
+  echo "Mounting $count most recent snapshots:"
+  while IFS= read -r snapshot_id; do
+    if [[ -n "$snapshot_id" ]]; then
+      echo "Snapshot $snapshot_id:"
+      mount_specific_snapshot "$snapshot_id" || echo "  Failed to mount snapshot $snapshot_id"
+    fi
+  done <<< "$snapshot_ids"
   echo
 else
   # Arguments provided: mount specific snapshots
