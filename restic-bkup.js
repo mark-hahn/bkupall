@@ -282,6 +282,7 @@ async function runBackup(onDelayCallback = null) {
   }
 
   // Backup is starting
+  const startTime = Date.now();
   log(`\n\n======== Backup starting =======\n${ts()}`);
 
   const errors = [];
@@ -356,12 +357,15 @@ async function runBackup(onDelayCallback = null) {
 
   log(`\n====== Backup finished ======\n${ts()}`);
 
+  const endTime = Date.now();
+  const durationMinutes = Math.round((endTime - startTime) / 60000);
+
   if (errors.length > 0) {
     log(`\n⚠️  ERRORS: ${errors.length} backup(s) failed`);
-    return { status: 'error', success: false, output: lines.join('\n'), reason: errors.join('; ') };
+    return { status: 'error', success: false, output: lines.join('\n'), reason: errors.join('; '), durationMinutes };
   }
 
-  return { status: 'success', success: true, output: lines.join('\n') };
+  return { status: 'success', success: true, output: lines.join('\n'), durationMinutes };
 }
 
 module.exports = { runBackup };
