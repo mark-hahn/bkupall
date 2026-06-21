@@ -1,16 +1,15 @@
 #!/bin/bash
 
 #
-# Selects a restore point from the backupall `restic` repository, bind-mounts
-# the matching `sys`, `boot`, and `boot-efi` snapshots, and adds them to VS Code.
+# Selects a restore point from the mlap `restic` repository, bind-mounts
+# the snapshot, and adds it to VS Code.
 #
 # How to run: `./add-folders [snapshot_specifier]`
 #
 # Details: The `snapshot_specifier` can be an index such as `0` or `1`, the
 # word `latest`, or a date/time string such as `"2026/06/10 18:43"`. The script
 # mounts the repository if needed, records the selected snapshot time in
-# `mlap-bkup-time`, and opens `/mnt/mlap-root`, `/mnt/mlap-boot`, and
-# `/mnt/mlap-boot-efi` in VS Code when those snapshots are available.
+# `mlap-bkup-time`, and opens `/mnt/mlap-root` in VS Code.
 #
 # Parameter examples of specifying what to mount:
 #   (no argument)       - latest.
@@ -306,7 +305,7 @@ mount_bind_if_present() {
     mkdir -p "$dest_path"
 
     if [[ -d "$source_path" ]]; then
-        mount --bind "$source_path" "$dest_path"
+        /usr/bin/mount --bind "$source_path" "$dest_path"
         VSCODE_DIRS+=("$dest_path")
     else
         echo "WARNING: $label not found in snapshot, skipping"
@@ -316,12 +315,8 @@ mount_bind_if_present() {
 ensure_mount
 
 SYS_SNAP_DIR=$(find_snap_dir "$ARG" automated) || exit 1
-BOOT_SNAP_DIR=$(find_snap_dir "$ARG" boot || true)
-EFI_SNAP_DIR=$(find_snap_dir "$ARG" boot-efi || true)
 
 SYS_SNAP_BASE="$MOUNTPOINT/snapshots/$SYS_SNAP_DIR"
-BOOT_SNAP_BASE="$MOUNTPOINT/snapshots/$BOOT_SNAP_DIR"
-EFI_SNAP_BASE="$MOUNTPOINT/snapshots/$EFI_SNAP_DIR"
 
 if [[ ! -d "$SYS_SNAP_BASE" ]]; then
     echo "ERROR: System snapshot path not found: $SYS_SNAP_BASE" >&2
@@ -335,18 +330,6 @@ record_selected_time "$SYS_SNAP_DIR"
 
 VSCODE_DIRS=()
 mount_bind_if_present "$SYS_SNAP_BASE" /mnt/mlap-root root-filesystem
-
-if [[ -n "$BOOT_SNAP_DIR" ]]; then
-    mount_bind_if_present "$BOOT_SNAP_BASE" /mnt/mlap-boot boot-filesystem
-else
-    echo "WARNING: No boot snapshot found for selection '$ARG'"
-fi
-
-if [[ -n "$EFI_SNAP_DIR" ]]; then
-    mount_bind_if_present "$EFI_SNAP_BASE" /mnt/mlap-boot-efi boot-efi-filesystem
-else
-    echo "WARNING: No boot-efi snapshot found for selection '$ARG'"
-fi
 
 if [[ ${#VSCODE_DIRS[@]} -eq 0 ]]; then
     echo "ERROR: No mountable paths found in selected restore point" >&2

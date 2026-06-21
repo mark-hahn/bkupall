@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Lists available `sys` snapshots in the backupall `restic` repository.
+# Lists available snapshots in the mlap `restic` repository.
 #
 # How to run:
 #   ./list        # Lists the 10 most recent snapshots

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Mounts the backupall `restic` repository and bind-mounts restore views for
+# Mounts the mlap `restic` repository and bind-mounts restore views for
 # browsing.
 #
 # How to run:
@@ -28,8 +28,6 @@ REPO="/mnt/media/backup/mlap"
 MOUNTPOINT="/mnt/mlap-bkup"
 PASSWORD_FILE="$APP_DIR/restic-cred.txt"
 SYS_BROWSE_MOUNT="/mnt/mlap-root"
-BOOT_BROWSE_MOUNT="/mnt/mlap-boot"
-EFI_BROWSE_MOUNT="/mnt/mlap-boot-efi"
 
 # Get snapshot date/time for a given snapshot ID
 get_snapshot_datetime() {
@@ -108,8 +106,6 @@ prepare_browse_mount() {
 
 cleanup_all_mounts() {
   cleanup_mount "$SYS_BROWSE_MOUNT"
-  cleanup_mount "$BOOT_BROWSE_MOUNT"
-  cleanup_mount "$EFI_BROWSE_MOUNT"
   cleanup_mount "$MOUNTPOINT"
 }
 

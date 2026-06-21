@@ -4,7 +4,7 @@
 # Unmounts restore views created by the mount script.
 #
 # How to run:
-#   ./unmount              # Unmounts all default mounts (/mnt/bkupall-*)
+#   ./unmount              # Unmounts all default mounts (/mnt/mlap-*)
 #   ./unmount <id> [...]   # Unmounts specific snapshot mounts by ID
 #
 # Without args: Unmounts the default latest snapshot mounts and repository.
@@ -15,8 +15,6 @@
 set -euo pipefail
 
 SYS_BROWSE_MOUNT="/mnt/mlap-root"
-BOOT_BROWSE_MOUNT="/mnt/mlap-boot"
-EFI_BROWSE_MOUNT="/mnt/mlap-boot-efi"
 MOUNTPOINT="/mnt/mlap-bkup"
 
 cleanup_mount() {
@@ -32,8 +30,6 @@ cleanup_mount() {
 
 cleanup_all_mounts() {
   cleanup_mount "$SYS_BROWSE_MOUNT"
-  cleanup_mount "$BOOT_BROWSE_MOUNT"
-  cleanup_mount "$EFI_BROWSE_MOUNT"
   cleanup_mount "$MOUNTPOINT"
 }
 
