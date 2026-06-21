@@ -1,0 +1,81 @@
+#!/bin/bash
+
+#
+# Unmounts restore views created by the mount script.
+#
+# How to run:
+#   ./unmount              # Unmounts all default mounts (/mnt/bkupall-*)
+#   ./unmount <id> [...]   # Unmounts specific snapshot mounts by ID
+#
+# Without args: Unmounts the default latest snapshot mounts and repository.
+#
+# With snapshot IDs: Unmounts and removes the directories for each specified
+# snapshot ID (e.g., /mnt/bkup/mlap/2024-01-01.12.00.00).
+
+set -euo pipefail
+
+SYS_BROWSE_MOUNT="/mnt/mlap-root"
+BOOT_BROWSE_MOUNT="/mnt/mlap-boot"
+EFI_BROWSE_MOUNT="/mnt/mlap-boot-efi"
+MOUNTPOINT="/mnt/mlap-bkup"
+
+cleanup_mount() {
+  local path="$1"
+
+  if findmnt -rn "$path" >/dev/null 2>&1; then
+    echo "Unmounting $path ..."
+    fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+  else
+    echo "$path is not mounted."
+  fi
+}
+
+cleanup_all_mounts() {
+  cleanup_mount "$SYS_BROWSE_MOUNT"
+  cleanup_mount "$BOOT_BROWSE_MOUNT"
+  cleanup_mount "$EFI_BROWSE_MOUNT"
+  cleanup_mount "$MOUNTPOINT"
+}
+
+# Unmount a specific snapshot by ID
+unmount_snapshot_by_id() {
+  local snapshot_id="$1"
+  local found=0
+  
+  # Find all directories in /mnt/bkup/mlap/ that end with -<snapshot_id>
+  if [[ -d /mnt/bkup/mlap ]]; then
+    for dir in /mnt/bkup/mlap/*"-$snapshot_id"; do
+      if [[ -d "$dir" ]]; then
+        found=1
+        echo "Processing snapshot $snapshot_id:"
+        cleanup_mount "$dir"
+        
+        # Remove the directory after unmounting
+        if ! findmnt -rn "$dir" >/dev/null 2>&1; then
+          rm -rf "$dir"
+          echo "Removed $dir"
+        else
+          echo "WARNING: Could not remove $dir (still mounted)"
+        fi
+      fi
+    done
+  fi
+  
+  if [[ $found -eq 0 ]]; then
+    echo "No mount found for snapshot ID: $snapshot_id"
+  fi
+}
+
+# Main logic
+if [[ $# -eq 0 ]]; then
+  # No arguments: unmount all default mounts
+  cleanup_all_mounts
+  echo "All restore mounts have been unmounted."
+else
+  # Arguments provided: unmount specific snapshots
+  echo "Unmounting specific snapshots:"
+  for snapshot_id in "$@"; do
+    unmount_snapshot_by_id "$snapshot_id"
+  done
+  echo "Done."
+fi

@@ -1,0 +1,356 @@
+#!/bin/bash
+
+#
+# Selects a restore point from the backupall `restic` repository, bind-mounts
+# the matching `sys`, `boot`, and `boot-efi` snapshots, and adds them to VS Code.
+#
+# How to run: `./add-folders [snapshot_specifier]`
+#
+# Details: The `snapshot_specifier` can be an index such as `0` or `1`, the
+# word `latest`, or a date/time string such as `"2026/06/10 18:43"`. The script
+# mounts the repository if needed, records the selected snapshot time in
+# `mlap-bkup-time`, and opens `/mnt/mlap-root`, `/mnt/mlap-boot`, and
+# `/mnt/mlap-boot-efi` in VS Code when those snapshots are available.
+#
+# Parameter examples of specifying what to mount:
+#   (no argument)       - latest.
+#   0 or latest         - latest.
+#   1                   - second latest.
+#   "2026/06/08 14:30"  - latest at or before this date and time.
+#   "2026/06/08"        - latest at or before this date (time defaults to 00:00:00).
+#   "14:30"             - latest at or before this time on the current day.
+#   "26/06/"            - latest at or before the beginning of June 2026.
+#   "/06/08"            - latest at or before June 8th of the current year.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
+REPO="/mnt/media/backup/mlap"
+PASSWORD_FILE="$APP_DIR/restic-cred.txt"
+MOUNTPOINT="/mnt/mlap-bkup"
+STATE_FILE="$SCRIPT_DIR/mlap-bkup-time"
+
+ARG="${1:-}"
+if [[ -n "${2:-}" ]]; then
+    ARG="$1 $2"
+fi
+
+cleanup_mount() {
+    local path="$1"
+
+    if findmnt -rn "$path" >/dev/null 2>&1; then
+        fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+    fi
+
+    if [[ -e "$path" || -L "$path" ]] && ! stat "$path" >/dev/null 2>&1; then
+        rm -rf "$path"
+    fi
+}
+
+pad2() { printf "%02d" "$((10#$1))"; }
+
+check_range() {
+    local val=$((10#$1)) min=$2 max=$3 name=$4 orig=$5
+    if (( val < min || val > max )); then
+        echo "ERROR: $name $val out of range ($min-$max) in: '$orig'" >&2
+        return 1
+    fi
+}
+
+parse_date_str() {
+    local s="$1" yr
+    yr=$(date +%Y)
+    local sw=false ew=false
+    [[ "$s" == /* ]] && sw=true
+    [[ "$s" == */ ]] && ew=true
+    local stripped="${s#/}"
+    stripped="${stripped%/}"
+    IFS='/' read -ra p <<< "$stripped"
+    local y m d
+    if $ew && ! $sw; then
+        case ${#p[@]} in
+            1) y=${p[0]}; [[ ${#y} -eq 2 ]] && y="20$y"; echo "$y/01/01"; return ;;
+            2) y=${p[0]}; m=${p[1]}; [[ ${#y} -eq 2 ]] && y="20$y"
+               check_range "$m" 1 12 month "$s" || return 1
+               echo "$y/$(pad2 "$m")/01"; return ;;
+        esac
+    elif $sw && ! $ew; then
+        case ${#p[@]} in
+            1) d=${p[0]}; check_range "$d" 1 31 day "$s" || return 1; echo "$yr/01/$(pad2 "$d")"; return ;;
+            2) m=${p[0]}; d=${p[1]}
+               check_range "$m" 1 12 month "$s" || return 1
+               check_range "$d" 1 31 day "$s" || return 1
+               echo "$yr/$(pad2 "$m")/$(pad2 "$d")"; return ;;
+        esac
+    else
+        case ${#p[@]} in
+            3) y=${p[0]}; m=${p[1]}; d=${p[2]}; [[ ${#y} -eq 2 ]] && y="20$y"
+               check_range "$m" 1 12 month "$s" || return 1
+               check_range "$d" 1 31 day "$s" || return 1
+               echo "$y/$(pad2 "$m")/$(pad2 "$d")"; return ;;
+            *) echo "ERROR: date requires 3 parts (yyyy/mm/dd) without leading/trailing /: '$s'" >&2; return 1 ;;
+        esac
+    fi
+
+    echo "ERROR: unsupported date shorthand: '$s'" >&2
+    return 1
+}
+
+parse_time_str() {
+    local s="$1"
+    local sw=false ew=false
+    [[ "$s" == :* ]] && sw=true
+    [[ "$s" == *: ]] && ew=true
+    local stripped="${s#:}"
+    stripped="${stripped%:}"
+    IFS=':' read -ra p <<< "$stripped"
+    local h m sec
+    if $ew && ! $sw; then
+        case ${#p[@]} in
+            1) h=${p[0]}; check_range "$h" 0 23 hour "$s" || return 1; echo "$(pad2 "$h"):00:00"; return ;;
+            2) h=${p[0]}; m=${p[1]}
+               check_range "$h" 0 23 hour "$s" || return 1
+               check_range "$m" 0 59 minute "$s" || return 1
+               echo "$(pad2 "$h"):$(pad2 "$m"):00"; return ;;
+        esac
+    elif $sw && ! $ew; then
+        case ${#p[@]} in
+            1) sec=${p[0]}; check_range "$sec" 0 59 second "$s" || return 1; echo "00:00:$(pad2 "$sec")"; return ;;
+            2) m=${p[0]}; sec=${p[1]}
+               check_range "$m" 0 59 minute "$s" || return 1
+               check_range "$sec" 0 59 second "$s" || return 1
+               echo "00:$(pad2 "$m"):$(pad2 "$sec")"; return ;;
+        esac
+    else
+        case ${#p[@]} in
+            2) h=${p[0]}; m=${p[1]}
+               check_range "$h" 0 23 hour "$s" || return 1
+               check_range "$m" 0 59 minute "$s" || return 1
+               echo "$(pad2 "$h"):$(pad2 "$m"):00"; return ;;
+            3) h=${p[0]}; m=${p[1]}; sec=${p[2]}
+               check_range "$h" 0 23 hour "$s" || return 1
+               check_range "$m" 0 59 minute "$s" || return 1
+               check_range "$sec" 0 59 second "$s" || return 1
+               echo "$(pad2 "$h"):$(pad2 "$m"):$(pad2 "$sec")"; return ;;
+            *) echo "ERROR: time requires hh:mm, hh:mm:ss, or a leading/trailing-colon shorthand: '$s'" >&2; return 1 ;;
+        esac
+    fi
+
+    echo "ERROR: unsupported time shorthand: '$s'" >&2
+    return 1
+}
+
+parse_datetime_arg() {
+    local input="$1"
+    local dp="" tp=""
+    if [[ "$input" == *" "* ]]; then
+        local p1="${input%% *}" p2="${input#* }"
+        if [[ "$p1" == */* || "$p1" == /* ]]; then
+            dp="$p1"
+            tp="$p2"
+        else
+            tp="$p1"
+            dp="$p2"
+        fi
+    elif [[ "$input" == */* || "$input" == /* ]]; then
+        dp="$input"
+    elif [[ "$input" == *:* || "$input" == :* ]]; then
+        tp="$input"
+    else
+        dp="$input"
+    fi
+
+    local d t
+    if [[ -n "$dp" ]]; then
+        d=$(parse_date_str "$dp") || return 1
+    else
+        d=$(date +%Y/%m/%d)
+    fi
+    if [[ -n "$tp" ]]; then
+        t=$(parse_time_str "$tp") || return 1
+    else
+        t="00:00:00"
+    fi
+
+    echo "$d $t"
+}
+
+snapshot_rows() {
+    local tag="$1"
+    restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --tag "$tag" 2>/dev/null \
+        | python3 -c '
+import json, sys, re
+from datetime import datetime
+
+data = json.load(sys.stdin)
+
+def parse_time(value):
+    value = re.sub(r"\.\d+", "", value)
+    return datetime.fromisoformat(value)
+
+rows = []
+for snap in data:
+    raw = snap.get("time", "")
+    if not raw:
+        continue
+    dir_name = re.sub(r"\.\d+", "", raw)
+    epoch = int(parse_time(raw).timestamp())
+    rows.append((dir_name, epoch, snap.get("short_id", "")))
+
+rows.sort(key=lambda item: item[1], reverse=True)
+for dir_name, epoch, short_id in rows:
+    print(dir_name, epoch, short_id)
+'
+}
+
+find_snap_dir() {
+    local arg="$1" tag="$2"
+
+    local sorted
+    sorted=$(snapshot_rows "$tag")
+    if [[ -z "$sorted" ]]; then
+        echo "ERROR: Could not list snapshots for tag '$tag'" >&2
+        return 1
+    fi
+
+    if [[ -z "$arg" || "$arg" == "0" || "$arg" == "latest" ]]; then
+        echo "$sorted" | sed -n '1p' | awk '{print $1}'
+        return 0
+    fi
+
+    if [[ "$arg" =~ ^[0-9]+$ ]]; then
+        local line
+        line=$(echo "$sorted" | sed -n "$((arg + 1))p")
+        if [[ -z "$line" ]]; then
+            local count
+            count=$(echo "$sorted" | wc -l)
+            echo "ERROR: Index $arg out of range for tag '$tag' (only $count snapshots)" >&2
+            return 1
+        fi
+        echo "${line%% *}"
+        return 0
+    fi
+
+    local dt
+    dt=$(parse_datetime_arg "$arg") || return 1
+
+    local target_epoch
+    target_epoch=$(date -d "$dt" +%s 2>/dev/null) || {
+        echo "ERROR: Could not parse datetime: $dt" >&2
+        return 1
+    }
+
+    local now_epoch
+    now_epoch=$(date +%s)
+    if (( target_epoch > now_epoch )); then
+        echo "ERROR: Datetime is in the future: $dt" >&2
+        return 1
+    fi
+
+    local best_dir="" best_epoch=-1
+    while read -r dir epoch _sid; do
+        if (( epoch <= target_epoch && epoch > best_epoch )); then
+            best_epoch=$epoch
+            best_dir=$dir
+        fi
+    done <<< "$sorted"
+
+    if [[ -z "$best_dir" ]]; then
+        echo "ERROR: No '$tag' snapshot at or before: $dt" >&2
+        return 1
+    fi
+
+    echo "$best_dir"
+}
+
+ensure_mount() {
+    if mountpoint -q "$MOUNTPOINT"; then
+        return 0
+    fi
+
+    cleanup_mount "$MOUNTPOINT"
+    mkdir -p "$MOUNTPOINT"
+    echo "Starting FUSE mount..."
+    nohup restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT" \
+        > /tmp/mlap-mount.log 2>&1 &
+
+    for i in $(seq 1 10); do
+        sleep 1
+        mountpoint -q "$MOUNTPOINT" && return 0
+        echo "  Waiting... ($i)"
+    done
+
+    echo "ERROR: FUSE mount failed. Check /tmp/mlap-mount.log" >&2
+    return 1
+}
+
+record_selected_time() {
+    local snap_dir="$1"
+    local new_time old_time
+    new_time=$(TZ="America/Los_Angeles" date -d "$snap_dir" "+%Y/%m/%d %H:%M:%S")
+    old_time=$(cat "$STATE_FILE" 2>/dev/null || echo "(none)")
+    echo "$new_time" > "$STATE_FILE"
+    if [[ "$new_time" == "$old_time" ]]; then
+        echo "Snapshot unchanged: $new_time  -- refresh Explorer to reload files"
+    else
+        echo "Snapshot changed:   $old_time  ->  $new_time  -- refresh Explorer to reload files"
+    fi
+}
+
+mount_bind_if_present() {
+    local source_path="$1" dest_path="$2" label="$3"
+
+    cleanup_mount "$dest_path"
+    mkdir -p "$dest_path"
+
+    if [[ -d "$source_path" ]]; then
+        mount --bind "$source_path" "$dest_path"
+        VSCODE_DIRS+=("$dest_path")
+    else
+        echo "WARNING: $label not found in snapshot, skipping"
+    fi
+}
+
+ensure_mount
+
+SYS_SNAP_DIR=$(find_snap_dir "$ARG" automated) || exit 1
+BOOT_SNAP_DIR=$(find_snap_dir "$ARG" boot || true)
+EFI_SNAP_DIR=$(find_snap_dir "$ARG" boot-efi || true)
+
+SYS_SNAP_BASE="$MOUNTPOINT/snapshots/$SYS_SNAP_DIR"
+BOOT_SNAP_BASE="$MOUNTPOINT/snapshots/$BOOT_SNAP_DIR"
+EFI_SNAP_BASE="$MOUNTPOINT/snapshots/$EFI_SNAP_DIR"
+
+if [[ ! -d "$SYS_SNAP_BASE" ]]; then
+    echo "ERROR: System snapshot path not found: $SYS_SNAP_BASE" >&2
+    echo "Available snapshots:"
+    ls "$MOUNTPOINT/snapshots/"
+    exit 1
+fi
+
+echo "Mounting restore point: $SYS_SNAP_DIR"
+record_selected_time "$SYS_SNAP_DIR"
+
+VSCODE_DIRS=()
+mount_bind_if_present "$SYS_SNAP_BASE" /mnt/mlap-root root-filesystem
+
+if [[ -n "$BOOT_SNAP_DIR" ]]; then
+    mount_bind_if_present "$BOOT_SNAP_BASE" /mnt/mlap-boot boot-filesystem
+else
+    echo "WARNING: No boot snapshot found for selection '$ARG'"
+fi
+
+if [[ -n "$EFI_SNAP_DIR" ]]; then
+    mount_bind_if_present "$EFI_SNAP_BASE" /mnt/mlap-boot-efi boot-efi-filesystem
+else
+    echo "WARNING: No boot-efi snapshot found for selection '$ARG'"
+fi
+
+if [[ ${#VSCODE_DIRS[@]} -eq 0 ]]; then
+    echo "ERROR: No mountable paths found in selected restore point" >&2
+    exit 1
+fi
+
+code --add "${VSCODE_DIRS[@]}"

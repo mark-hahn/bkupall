@@ -1,0 +1,196 @@
+#!/bin/bash
+
+#
+# Mounts the backupall `restic` repository and bind-mounts restore views for
+# browsing.
+#
+# How to run:
+#   ./mount              # Mounts latest sys snapshot to /mnt/bkup/mlap/<date>/
+#   ./mount <n>          # Mounts N most recent snapshots (0-999)
+#   ./mount <id> [...]   # Mounts specific snapshots to /mnt/bkup/mlap/<date>/
+#
+# By default, this script mounts the latest system snapshot to a directory like
+# `/mnt/bkup/mlap/<date>/`.
+#
+# If you provide a single integer (0-999), it will mount that number of most
+# recent sys snapshots.
+#
+# If you provide one or more snapshot IDs as arguments, it will mount each
+# restore view directly to `/mnt/bkup/mlap/<date>/`.
+# The <date> format is yyyy-mm-dd.hh.mm.ss.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+APP_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
+REPO="/mnt/media/backup/mlap"
+MOUNTPOINT="/mnt/mlap-bkup"
+PASSWORD_FILE="$APP_DIR/restic-cred.txt"
+SYS_BROWSE_MOUNT="/mnt/mlap-root"
+BOOT_BROWSE_MOUNT="/mnt/mlap-boot"
+EFI_BROWSE_MOUNT="/mnt/mlap-boot-efi"
+
+# Get snapshot date/time for a given snapshot ID
+get_snapshot_datetime() {
+  local snapshot_id="$1"
+  local datetime
+  
+  datetime=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r ".[] | select(.short_id == \"$snapshot_id\") | .time" | \
+    sed 's/T/./' | sed 's/\.[0-9]*[+-].*$//' | tr ':' '.')
+  
+  if [[ -z "$datetime" ]]; then
+    echo "ERROR: Could not find snapshot with ID $snapshot_id" >&2
+    return 1
+  fi
+  
+  echo "$datetime"
+}
+
+# Mount a specific snapshot to /mnt/bkup/mlap/<date>/
+mount_specific_snapshot() {
+  local snapshot_id="$1"
+  local datetime
+  local mount_path
+  local snapshot_path
+  
+  datetime=$(get_snapshot_datetime "$snapshot_id") || return 1
+  mount_path="/mnt/bkup/mlap/$datetime"
+  snapshot_path="$MOUNTPOINT/ids/$snapshot_id"
+  
+  if [[ ! -d "$snapshot_path" ]]; then
+    echo "ERROR: Snapshot path $snapshot_path not found" >&2
+    return 1
+  fi
+  
+  # Mount sys contents directly to base path
+  cleanup_mount "$mount_path"
+  mkdir -p "$mount_path"
+  /usr/bin/mount --bind "$snapshot_path" "$mount_path"
+  echo "  $mount_path"
+}
+
+cleanup_mount() {
+  local path="$1"
+
+  if findmnt -rn "$path" >/dev/null 2>&1; then
+    echo "Unmounting $path ..."
+    fusermount -uz "$path" 2>/dev/null || umount -l "$path" 2>/dev/null || umount "$path" 2>/dev/null || true
+  fi
+
+  if [[ -e "$path" || -L "$path" ]] && ! stat "$path" >/dev/null 2>&1; then
+    rm -rf "$path"
+  fi
+}
+
+prepare_browse_mount() {
+  local tag="$1"
+  local destination="$2"
+  local latest_path="$MOUNTPOINT/tags/$tag/latest"
+  local source_path
+
+  if [[ ! -e "$latest_path" ]]; then
+    echo "WARNING: No latest snapshot found for tag '$tag'"
+    return 1
+  fi
+
+  source_path=$(readlink -f "$latest_path")
+  if [[ -z "$source_path" || ! -d "$source_path" ]]; then
+    echo "WARNING: Could not resolve a directory for tag '$tag'"
+    return 1
+  fi
+
+  cleanup_mount "$destination"
+  mkdir -p "$destination"
+  /usr/bin/mount --bind "$source_path" "$destination"
+}
+
+cleanup_all_mounts() {
+  cleanup_mount "$SYS_BROWSE_MOUNT"
+  cleanup_mount "$BOOT_BROWSE_MOUNT"
+  cleanup_mount "$EFI_BROWSE_MOUNT"
+  cleanup_mount "$MOUNTPOINT"
+}
+
+# Ensure repository is mounted
+ensure_repo_mounted() {
+  if mountpoint -q "$MOUNTPOINT"; then
+    echo "Repository already mounted at $MOUNTPOINT"
+    return 0
+  fi
+  
+  mkdir -p "$MOUNTPOINT"
+  echo "Mounting $REPO at $MOUNTPOINT ..."
+  nohup restic -r "$REPO" -p "$PASSWORD_FILE" mount --allow-other "$MOUNTPOINT" \
+    > /tmp/mlap-mount.log 2>&1 &
+
+  for i in $(seq 1 10); do
+    if mountpoint -q "$MOUNTPOINT"; then
+      break
+    fi
+    sleep 1
+  done
+
+  if ! mountpoint -q "$MOUNTPOINT"; then
+    echo "ERROR: FUSE mount failed at $MOUNTPOINT" >&2
+    exit 1
+  fi
+  
+  echo "Repository mounted successfully"
+}
+
+# Main logic
+if [[ $# -eq 0 ]]; then
+  # No arguments: mount latest sys snapshot
+  ensure_repo_mounted
+  
+  # Get the latest sys snapshot ID
+  latest_id=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r '[.[] | select(.tags[]? == "automated")] | sort_by(.time) | last | .short_id')
+  
+  if [[ -z "$latest_id" || "$latest_id" == "null" ]]; then
+    echo "ERROR: Could not find latest sys snapshot" >&2
+    exit 1
+  fi
+  
+  echo
+  echo "Mounting latest snapshot:"
+  echo "Snapshot $latest_id:"
+  mount_specific_snapshot "$latest_id" || echo "  Failed to mount snapshot $latest_id"
+  echo
+elif [[ $# -eq 1 ]] && [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -ge 0 ]] && [[ "$1" -le 999 ]]; then
+  # Single integer argument (0-999): mount N most recent snapshots
+  count="$1"
+  ensure_repo_mounted
+  
+  # Get the N most recent sys snapshot IDs
+  snapshot_ids=$(restic -r "$REPO" -p "$PASSWORD_FILE" snapshots --json --no-lock | \
+    jq -r "[.[] | select(.tags[]? == \"automated\")] | sort_by(.time) | reverse | .[0:$count] | .[].short_id")
+  
+  if [[ -z "$snapshot_ids" ]]; then
+    echo "ERROR: Could not find any sys snapshots" >&2
+    exit 1
+  fi
+  
+  echo
+  echo "Mounting $count most recent snapshots:"
+  while IFS= read -r snapshot_id; do
+    if [[ -n "$snapshot_id" ]]; then
+      echo "Snapshot $snapshot_id:"
+      mount_specific_snapshot "$snapshot_id" || echo "  Failed to mount snapshot $snapshot_id"
+    fi
+  done <<< "$snapshot_ids"
+  echo
+else
+  # Arguments provided: mount specific snapshots
+  ensure_repo_mounted
+  
+  echo
+  echo "Mounting specific snapshots:"
+  for snapshot_id in "$@"; do
+    echo "Snapshot $snapshot_id:"
+    mount_specific_snapshot "$snapshot_id" || echo "  Failed to mount snapshot $snapshot_id"
+  done
+  echo
+fi
