@@ -292,7 +292,9 @@ async function runBackup(onDelayCallback = null) {
     '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
   ]);
   lines.push(media.output);
-  if (media.code !== 0) {
+  if (media.code === 24) {
+    log('Note: some media files vanished before transfer (e.g. temp files)');
+  } else if (media.code !== 0) {
     const err = `Media backup failed (exit code ${media.code})`;
     log(`ERROR: ${err}`);
     errors.push(err);
