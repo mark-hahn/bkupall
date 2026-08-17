@@ -255,7 +255,7 @@ async function runResticBackup(name, sources, extraArgs, env, log, lines) {
   return result;
 }
 
-async function runBackup(onDelayCallback = null) {
+async function runBackup(onDelayCallback = null, onStartCallback = null) {
   const lines = [];
   const log = (msg) => { console.log(msg); lines.push(msg); };
 
@@ -284,6 +284,10 @@ async function runBackup(onDelayCallback = null) {
   // Backup is starting
   const startTime = Date.now();
   log(`\n\n======== Backup starting =======\n${ts()}`);
+
+  if (onStartCallback) {
+    await onStartCallback();
+  }
 
   const errors = [];
 

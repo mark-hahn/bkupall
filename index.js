@@ -35,7 +35,14 @@ async function doBackup() {
     }
   };
   
-  const result = await runBackup(onDelayCallback);
+  // Only worth announcing the start if we already sent a delay email
+  const onStartCallback = async () => {
+    if (delayEmailSent) {
+      await sendMail('bkupall: Backup started', 'Backup started after waiting for processes to complete.');
+    }
+  };
+
+  const result = await runBackup(onDelayCallback, onStartCallback);
 
   // Handle different backup statuses
   if (result.status === 'blocked') {
@@ -52,11 +59,6 @@ async function doBackup() {
       result.output
     );
     return;
-  }
-
-  // If we had a delay but backup started successfully
-  if (delayEmailSent && (result.status === 'success' || result.status === 'error')) {
-    await sendMail('bkupall: Backup started', 'Backup started after waiting for processes to complete.');
   }
 
   // Normal success/error handling
