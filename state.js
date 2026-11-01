@@ -47,8 +47,12 @@ function shouldSendStopEmail() {
   const state = readState();
   if (state.status !== 'stopped') return false;
   if (!state.lastStopEmailAt) return true;
+  // The 2-hourly cron tick lands exactly 2h after the previous one, but
+  // lastStopEmailAt is stamped after that send finished, so the gap is a little
+  // under 2h. Without the slack every other reminder would be skipped.
   const twoHours = 2 * 60 * 60 * 1000;
-  return (Date.now() - state.lastStopEmailAt) >= twoHours;
+  const slack    = 5 * 60 * 1000;
+  return (Date.now() - state.lastStopEmailAt) >= twoHours - slack;
 }
 
 module.exports = { readState, writeState, isStopped, stop, resume, updateLastStopEmail, shouldSendStopEmail };
