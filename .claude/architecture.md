@@ -47,7 +47,8 @@ cron tick → `doBackup`. If stopped, it sends a BLOCKED email. Otherwise `runBa
   while the process zone is LA.
 - The stop timestamps in `checkStopped` (index.js) and `cli.js` status print UTC (`toISOString`).
   Everything else prints LA local time.
-- restic stores snapshot times as RFC3339 with an offset (`-07:00` / `-08:00`). `restore/list`
-  sorts by epoch. Both `mount` scripts use jq `sort_by(.time)`, a string sort. It misorders only
-  two snapshots that both fall in the repeated 01:00 hour on fall-back day. Their mount
-  directory names drop the offset.
+- restic stores snapshot times as RFC3339 with an offset (`-07:00` / `-08:00`). Never sort the
+  raw string, because it misorders the repeated 01:00 hour on fall-back day. `restore/list`
+  sorts by epoch in Python. Both `mount` scripts sort with `sort_by(.time | epoch)`, using the
+  `JQ_EPOCH` jq function defined at the top of each script. Mount directory names still drop
+  the offset, so two `01:xx` names on fall-back day don't say which hour they're from.
