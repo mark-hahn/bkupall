@@ -23,6 +23,9 @@ cron tick → `doBackup`. If stopped, it sends a BLOCKED email. Otherwise `runBa
 5. rsync from the usbx seedbox → `/mnt/media/backup/usb`.
 6. One result email with the full output.
 
+The rsyncs and `restic backup` run under `ionice -c3` as well as `nice`. `nice` is CPU only, and at
+normal I/O priority they competed with nginx for the USB media disk while a video played.
+
 ## Logs
 
 - pm2 writes `backupall.log` in this directory and also `~/.pm2/logs/bkupall-out.log`.

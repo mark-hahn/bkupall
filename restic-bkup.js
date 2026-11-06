@@ -244,8 +244,8 @@ async function ensureResticRepo(log, lines) {
 
 async function runResticBackup(name, sources, extraArgs, env, log, lines) {
   log(`\n------ Backing up ${name} ------\n${ts()}`);
-  const result = await runCmd('nice', [
-    '-n', '20', 'restic', 'backup',
+  const result = await runCmd('ionice', [
+    '-c3', 'nice', '-n', '20', 'restic', 'backup',
     ...sources,
     '--one-file-system',
     '--tag', name,
@@ -292,8 +292,8 @@ async function runBackup(onDelayCallback = null, onStartCallback = null) {
   const errors = [];
 
   log(`\n------ Backing up media ------\n${ts()}`);
-  const media = await runCmd('nice', [
-    '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
+  const media = await runCmd('ionice', [
+    '-c3', 'nice', '-n', '20', 'rsync', '-a', '--stats', '--delete', '--force', '/mnt/media/', '/mnt/m-bkup',
   ]);
   lines.push(media.output);
   if (media.code === 24) {
@@ -347,8 +347,8 @@ async function runBackup(onDelayCallback = null, onStartCallback = null) {
   }
 
   log(`\n------ Backing up usb ------\n${ts()}`);
-  const usb = await runCmd('nice', [
-     'rsync', '-a', '--stats', '--delete', '--force', '--exclude', 'files',
+  const usb = await runCmd('ionice', [
+     '-c3', 'nice', 'rsync', '-a', '--stats', '--delete', '--force', '--exclude', 'files',
      '--exclude', '.proot/ubuntu-24.04/',
     'xobtlu@xobtlu.baron.usbx.me:/home/xobtlu/', '/mnt/media/backup/usb',
   ]);
